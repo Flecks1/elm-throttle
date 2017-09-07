@@ -59,12 +59,12 @@ type alias Id =
 
 
 type alias State msg =
-    { blockedThrottles : BlockedThrottles
+    { blockedIds : BlockedIds
     , trailingMessages : TrailingMessages msg
     }
 
 
-type alias BlockedThrottles =
+type alias BlockedIds =
     Set Id
 
 
@@ -91,10 +91,10 @@ onSelfMsg router (HandleThrottle id interval) ({ trailingMessages } as state) =
         Just msg ->
             sendBackToApp router msg state
                 |> Task.andThen (updateTrailingMessages (Dict.remove id))
-                |> Task.andThen (handleThrottlingAfterDelay router id interval)
+                |> Task.andThen (launchThrottling router id interval)
 
         Nothing ->
-            updateBlockedThrottles (Set.remove id) state
+            updateBlockedIds (Set.remove id) state
 
 
 
@@ -111,10 +111,10 @@ onEffects router cmds state =
 
 
 throttleHelp : Platform.Router msg SelfMsg -> Request msg -> State msg -> Task Never (State msg)
-throttleHelp router { throttleType, interval, id, msg } ({ blockedThrottles } as state) =
+throttleHelp router { throttleType, interval, id, msg } ({ blockedIds } as state) =
     let
         isBlocked =
-            Set.member id blockedThrottles
+            Set.member id blockedIds
 
         ( mustHandleLeading, mustAddMsgToTrailing ) =
             ( not isBlocked && (throttleType == Both || throttleType == Leading)
@@ -130,7 +130,7 @@ throttleHelp router { throttleType, interval, id, msg } ({ blockedThrottles } as
         ( maybeHandleLeading, maybeAddToTrailing, maybeStartThrottling ) =
             ( doIf mustHandleLeading <| sendBackToApp router msg
             , doIf mustAddMsgToTrailing <| updateTrailingMessages (Dict.insert id msg)
-            , doIf (not isBlocked) <| handleThrottlingAfterDelay router id interval
+            , doIf (not isBlocked) <| launchThrottling router id interval
             )
     in
     maybeHandleLeading state
@@ -142,19 +142,19 @@ throttleHelp router { throttleType, interval, id, msg } ({ blockedThrottles } as
 -- COMMON TASKS
 
 
-handleThrottlingAfterDelay : Platform.Router msg SelfMsg -> Id -> Time -> State msg -> Task Never (State msg)
-handleThrottlingAfterDelay router id interval state =
+launchThrottling : Platform.Router msg SelfMsg -> Id -> Time -> State msg -> Task Never (State msg)
+launchThrottling router id interval state =
     let
         spawnTask =
             Process.spawn (Process.sleep interval &> Platform.sendToSelf router (HandleThrottle id interval))
     in
     do spawnTask state
-        |> Task.andThen (updateBlockedThrottles (Set.insert id))
+        |> Task.andThen (updateBlockedIds (Set.insert id))
 
 
-updateBlockedThrottles : (BlockedThrottles -> BlockedThrottles) -> State msg -> Task Never (State msg)
-updateBlockedThrottles f state =
-    Task.succeed { state | blockedThrottles = f state.blockedThrottles }
+updateBlockedIds : (BlockedIds -> BlockedIds) -> State msg -> Task Never (State msg)
+updateBlockedIds f state =
+    Task.succeed { state | blockedIds = f state.blockedIds }
 
 
 updateTrailingMessages : (TrailingMessages msg -> TrailingMessages msg) -> State msg -> Task Never (State msg)
