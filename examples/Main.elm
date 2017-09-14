@@ -19,7 +19,7 @@ update : Msg -> String -> ( String, Cmd Msg )
 update msg model =
     case msg of
         SetTextAndLogWithLeading txt ->
-            txt ! [ Throttle.both Time.second "logTextLeading" (LogText txt) ]
+            txt ! [ Throttle.leading Time.second "logTextLeading" (LogText txt) ]
 
         SetTextAndLogWithTrailing txt ->
             txt ! [ Throttle.trailing Time.second "logTextTrailing" (LogText txt) ]
